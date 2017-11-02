@@ -8,6 +8,10 @@ import time
 
 import pyqode.qt.QtWidgets as QtWidgets
 import pyqode.qt.QtCore as QtCore
+import pyqode.qt.QtGui as QtGui
+from PyQt5.Qt import QApplication
+
+from myDef import i18n
 
 
 def serial_ports():
@@ -46,7 +50,7 @@ class Terminal(QtWidgets.QWidget):
         Constructor
         '''
         super(self.__class__, self).__init__(parent)
-        self.setFont(QtWidgets.QFont({
+        self.setFont(QtGui.QFont({
             'win32': 'Consolas',
             'linux': 'Monospace',
             'darwin': 'Andale Mono'
@@ -61,7 +65,31 @@ class Terminal(QtWidgets.QWidget):
         self._stream.attach(self._vt)
         self._workers.append(self._processText)
         self._stop = threading.Event()
+        
+   
+    def mousePressEvent(self, QMouseEvent):
+        if QMouseEvent.button() == QtCore.Qt.LeftButton:
+            #print("Left Button Clicked")
+            pass
+        elif QMouseEvent.button() == QtCore.Qt.RightButton:
+            #print("Right Button Clicked")
+            self.rightMenu(QMouseEvent.pos())
 
+
+    def rightMenu(self, position):
+        menu = QtWidgets.QMenu()
+        pasteAction = menu.addAction(i18n("Paste"))
+        pasteAction.triggered.connect(self.paste)
+        if not QApplication.clipboard().mimeData().hasText():
+            pasteAction.setEnabled(False)
+        menu.exec_(self.mapToGlobal(position))
+    
+    def paste(self):
+        clipText = QApplication.clipboard().text()
+        if clipText:
+            self._serial.write(clipText.encode())
+
+        
     def resizeEvent(self, event):
         charSize = self.textRect(' ').size()
         lines = int(event.size().height() / charSize.height())
@@ -87,8 +115,10 @@ class Terminal(QtWidgets.QWidget):
         try:
             self._serial = serial.Serial(port, speed, timeout=0.5)
             self._startThread()
+            return True
         except serial.SerialException as e:
             print(e)
+            return False
 
     def remoteExec(self, cmd, interceptor=None):
         if interceptor:
@@ -125,23 +155,32 @@ class Terminal(QtWidgets.QWidget):
         self.update()
         return False
 
+    def focusInEvent(self, event):
+        self.repaint()
+
+    def focusOutEvent(self, event):
+        self.repaint()
+
     def paintEvent(self, event):
-        p = QtWidgets.QPainter()
+        p = QtGui.QPainter()
         p.begin(self)
         pal = self.palette()
         p.fillRect(QtCore.QRect(QtCore.QPoint(), self.size()),
                    pal.color(pal.Background))
-        textSize = self.textRect(' ' * self._vt.size[1]).size()
+        textSize = self.textRect(' ' * self._vt.columns).size()
         bound = QtCore.QRect(QtCore.QPoint(), textSize)
         flags = QtCore.Qt.AlignLeft | QtCore.Qt.AlignBottom
         for line in self._vt.display:
             p.drawText(bound, flags, line)
             bound.translate(0, bound.height())
-        p.fillRect(self.cursorRect(), pal.color(pal.Foreground))
+        if self.hasFocus():
+            p.fillRect(self.cursorRect(), pal.color(pal.Foreground))
+        else:
+            p.drawRect(self.cursorRect())
         p.end()
 
     def textRect(self, text):
-        textSize = QtWidgets.QFontMetrics(self.font()).size(0, text)
+        textSize = QtGui.QFontMetrics(self.font()).size(0, text)
         return QtCore.QRect(QtCore.QPoint(), textSize)
 
     def cursorRect(self):
